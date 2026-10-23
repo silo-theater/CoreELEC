@@ -170,14 +170,23 @@ a static build for add-ons with EGL, EGLFS, OpenGL ES and Qt Quick switched
 off on the target. Do not edit it. Add new packages instead, for example
 under `packages/silo/`:
 
-- `qtbase` with EGLFS, OpenGL ES 2 and 3, evdev, libudev, fontconfig and
-  harfbuzz on, as shared libraries, built against `opengl-meson` (Mali
-  fbdev EGL). EGLFS uses the `eglfs_mali` integration.
+- `qtbase` with EGLFS, KMS, GBM, OpenGL ES 2 and 3, evdev, libudev,
+  fontconfig and harfbuzz on, as shared libraries, built against `libdrm`
+  and the GBM build of the Mali driver that `opengl-meson` installs.
 - `qtshadertools` and `qtdeclarative`, each with a host build for the tools.
 - Other modules, such as `qtsvg`, only when the UI needs them.
 
-The gate is milestone 1's Qt spike: a QML test app holding 60 fps on
-`/dev/fb0` while hardware video plays on the plane underneath.
+CoreELEC 22 drives the screen through DRM/KMS, not `/dev/fb0`: Kodi's
+`AMLDisplay` sets modes, HDR and Dolby Vision state and flips its GBM
+surface with atomic commits. silo-shell does the same through `libsilo-aml`,
+which must be the only DRM master. Qt reaches the screen through
+`eglfs_silo`, an EGLFS device integration in silo-theater that takes its
+GBM surface and page flips from `libsilo-aml`. Until it exists, Qt's stock
+`eglfs_kms` integration can show the UI, but it cannot switch modes or
+drive HDR. See the `libsilo-aml` README in silo-theater.
+
+The gate is milestone 1's Qt spike: a QML test app holding 60 fps on the
+OSD plane while hardware video plays on the video plane underneath.
 
 ### silo-shell repository layout
 
@@ -201,7 +210,8 @@ desktop with a stub video sink.
 
 Add `packages/silo/silo-shell/package.mk`. It pins silo-theater by hash
 like the forks, uses `PKG_TOOLCHAIN="cmake"`, and depends on
-`qtbase qtdeclarative ffmpeg libass libamcodec alsa-lib libcec bluez dbus`.
+`qtbase qtdeclarative ffmpeg libass libamcodec libdovi obu_util libdrm
+alsa-lib libcec bluez dbus`.
 The build system passes the cross toolchain file, `${CMAKE_CONF}`.
 
 Ship a `silo-shell.service` that conflicts with `kodi.service`. Kodi stays
@@ -217,7 +227,7 @@ scripts/build silo-shell
 scp build.CoreELEC-Amlogic-no.aarch64-22.0-devel/install_pkg/silo-shell-*/usr/bin/silo-shell \
   root@am6b:/storage/bin/
 ssh root@am6b 'systemctl stop kodi && \
-  QT_QPA_PLATFORM=eglfs QT_QPA_EGLFS_INTEGRATION=eglfs_mali /storage/bin/silo-shell'
+  QT_QPA_PLATFORM=eglfs QT_QPA_EGLFS_INTEGRATION=eglfs_silo /storage/bin/silo-shell'
 ```
 
 Until Qt is in the image, also copy its libraries to `/storage/lib` and set
