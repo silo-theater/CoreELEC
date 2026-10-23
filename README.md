@@ -54,7 +54,9 @@ The build works the same as CoreELEC:
 PROJECT=Amlogic-ce DEVICE=Amlogic-no ARCH=aarch64 make image
 ```
 
-See [packages/README.md](packages/README.md) for the package format.
+See [docs/development.md](docs/development.md) for the development setup
+and release process, and [packages/README.md](packages/README.md) for the
+package format.
 
 ## Roadmap
 
