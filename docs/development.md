@@ -2,7 +2,7 @@
 
 This guide covers setting up a Silo-theater development environment and
 taking the distribution to a shippable release. It describes the state of
-the repositories on 2026-10-22; update it as the steps below land.
+the repositories on 2026-10-23; update it as the steps below land.
 
 ## Where things stand
 
@@ -16,13 +16,11 @@ update channel, CI) still has to be created.
 | [silo-theater/linux-amlogic](https://github.com/silo-theater/linux-amlogic) | `5.15.196_20260306` | Pinned at `f231c781`. |
 | [silo-theater/media_modules-aml](https://github.com/silo-theater/media_modules-aml) | `5.15.196_20260225` | Pinned at `c15aebb1`. |
 | [silo-theater/xbmc](https://github.com/silo-theater/xbmc) | `aml-5.15.196-22.0` | Pinned at `887e3b74`. Fallback frontend and source of the player code. |
-| [silo-theater/silo-theater](https://github.com/silo-theater/silo-theater) | `main` | README, AGENTS.md and LICENSE only. No code yet. |
+| [silo-theater/silo-theater](https://github.com/silo-theater/silo-theater) | `main` | CMake project with a placeholder `silo-shell` window, desktop CI and clang-format. No player code yet; see the [libsilo-aml plan](https://github.com/silo-theater/silo-theater/blob/main/docs/libsilo-aml.md). |
 
 Open items in the READMEs:
 
 - The forks are already pinned, so that milestone 1 task is done.
-- The silo-theater LICENSE file is AGPL-3.0 while the plan says
-  GPL-2.0-or-later. Settle this before `silo-shell` code lands.
 - The AM6B+ uses the `g12b_s922x_ugoos_am6b` device tree, not the `am6` one
   named in this repository's README.
 
@@ -170,38 +168,53 @@ a static build for add-ons with EGL, EGLFS, OpenGL ES and Qt Quick switched
 off on the target. Do not edit it. Add new packages instead, for example
 under `packages/silo/`:
 
-- `qtbase` with EGLFS, OpenGL ES 2 and 3, evdev, libudev, fontconfig and
-  harfbuzz on, as shared libraries, built against `opengl-meson` (Mali
-  fbdev EGL). EGLFS uses the `eglfs_mali` integration.
+- `qtbase` with EGLFS, KMS, GBM, OpenGL ES 2 and 3, evdev, libudev,
+  fontconfig and harfbuzz on, as shared libraries, built against `libdrm`
+  and the GBM build of the Mali driver that `opengl-meson` installs.
 - `qtshadertools` and `qtdeclarative`, each with a host build for the tools.
 - Other modules, such as `qtsvg`, only when the UI needs them.
 
-The gate is milestone 1's Qt spike: a QML test app holding 60 fps on
-`/dev/fb0` while hardware video plays on the plane underneath.
+CoreELEC 22 drives the screen through DRM/KMS, not `/dev/fb0`: Kodi's
+`AMLDisplay` sets modes, HDR and Dolby Vision state and flips its GBM
+surface with atomic commits. silo-shell does the same through `libsilo-aml`,
+which must be the only DRM master. Qt reaches the screen through
+`eglfs_silo`, an EGLFS device integration in silo-theater that takes its
+GBM surface and page flips from `libsilo-aml`. Until it exists, Qt's stock
+`eglfs_kms` integration can show the UI, but it cannot switch modes or
+drive HDR. See the
+[libsilo-aml plan](https://github.com/silo-theater/silo-theater/blob/main/docs/libsilo-aml.md)
+in silo-theater.
+
+The gate is milestone 1's Qt spike: a QML test app holding 60 fps on the
+OSD plane while hardware video plays on the video plane underneath.
 
 ### silo-shell repository layout
 
-Set up silo-theater as one CMake project (CMake 3.21+, C++20, Qt 6):
+silo-theater is one CMake project (CMake 3.21+, C++20, Qt 6):
 
 | Directory | Contents |
 | --- | --- |
 | `src/ui/` | QML and the C++ models behind it |
 | `src/player/` | Demux (FFmpeg), clock, A/V sync, subtitles (libass) |
 | `libsilo-aml/` | Code extracted from `silo-theater/xbmc` `aml-5.15.196-22.0`, kept close to upstream |
+| `src/platform/eglfs_silo/` | Qt EGLFS device integration that draws through `libsilo-aml` |
 | `src/backends/` | `MediaBackend` with Silo and, later, Jellyfin |
 | `src/services/` | BlueZ (D-Bus) and libcec |
 | `tools/silo-play/` | Headless player CLI for the player spike and test suite |
 | `tests/` | Unit tests, including the silo-server contract fixtures |
 | `packaging/` | systemd unit and default config |
 
-Add a CMake option such as `SILO_AML=OFF` so the UI and backends build on a
-desktop with a stub video sink.
+The `SILO_AML` CMake option is off by default, so the UI and backends
+build on a desktop without the Amlogic code. The hardware-free parts of
+`libsilo-aml` (the IEC 61937 and MAT packers and the ELD parser) are planned
+to build and be tested there too.
 
 ### silo-shell package
 
 Add `packages/silo/silo-shell/package.mk`. It pins silo-theater by hash
 like the forks, uses `PKG_TOOLCHAIN="cmake"`, and depends on
-`qtbase qtdeclarative ffmpeg libass libamcodec alsa-lib libcec bluez dbus`.
+`qtbase qtdeclarative ffmpeg libass libamcodec libdovi obu_util libdrm
+alsa-lib libcec bluez dbus`.
 The build system passes the cross toolchain file, `${CMAKE_CONF}`.
 
 Ship a `silo-shell.service` that conflicts with `kodi.service`. Kodi stays
@@ -217,7 +230,7 @@ scripts/build silo-shell
 scp build.CoreELEC-Amlogic-no.aarch64-22.0-devel/install_pkg/silo-shell-*/usr/bin/silo-shell \
   root@am6b:/storage/bin/
 ssh root@am6b 'systemctl stop kodi && \
-  QT_QPA_PLATFORM=eglfs QT_QPA_EGLFS_INTEGRATION=eglfs_mali /storage/bin/silo-shell'
+  QT_QPA_PLATFORM=eglfs QT_QPA_EGLFS_INTEGRATION=eglfs_silo /storage/bin/silo-shell'
 ```
 
 Until Qt is in the image, also copy its libraries to `/storage/lib` and set
@@ -251,7 +264,8 @@ same file in Kodi on the same box.
 
 ## 6. Set up CI
 
-None of our repos builds anything in CI yet. Image builds need a
+Only silo-theater has CI today: a desktop build with `SILO_AML=OFF`, its
+tests and clang-format, on GitHub-hosted runners. Image builds need a
 self-hosted runner: a standard GitHub-hosted runner has about 14 GB of free
 disk and a 6-hour job limit, far short of a cold CoreELEC build.
 `silo-shell` checks fit on hosted runners.
@@ -347,7 +361,7 @@ Items within a group can run in parallel.
 
 **Environment (milestone 1)**
 
-- [ ] Decide the silo-shell license and fix the README
+- [x] Decide the silo-shell license (AGPL-3.0-or-later) and fix the README
 - [ ] Fix the README's AM6B+ device tree name and tick the pinning task
 - [ ] Build host with Docker and the `silo-build` image; record build time
       and disk use
@@ -358,11 +372,12 @@ Items within a group can run in parallel.
 
 **Spikes (milestone 1)**
 
-- [ ] Qt packages for EGLFS on `opengl-meson`; QML at 60 fps over video
+- [ ] Qt packages for EGLFS with KMS and GBM on `opengl-meson`, and
+      `eglfs_silo`; QML at 60 fps over video
 - [ ] `silo-play`: 4K HEVC HDR with TrueHD passthrough via `libsilo-aml`
 - [ ] Silo device login and a v3 start returning `original_http` with
       passthrough for a TrueHD file
-- [ ] CMake layout and desktop CI for silo-theater
+- [x] CMake layout and desktop CI for silo-theater
 
 **Bootable shell (milestone 2)**
 

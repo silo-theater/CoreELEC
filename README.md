@@ -23,7 +23,7 @@ servers, with Jellyfin as a fallback.
 | Area | CoreELEC 22 today | Silo-theater |
 | --- | --- | --- |
 | Frontend | Kodi (`kodi.service`) | `silo-shell` package and systemd unit. Kodi stays installed as a fallback and test reference until silo-shell is stable, then is removed. |
-| Graphics | GLES via `opengl-meson`, no display server | Unchanged. Adds Qt 6 (`qtbase`, `qtdeclarative`, `qtshadertools`) built for EGLFS on the Mali fbdev driver. |
+| Graphics | GLES via `opengl-meson`, no display server | Unchanged. Adds Qt 6 (`qtbase`, `qtdeclarative`, `qtshadertools`) built for EGLFS on DRM/KMS with the Mali GBM driver, the same display path Kodi uses. |
 | Video decode | `libamcodec`, `media_modules-aml` | Unchanged. silo-shell uses the same decode path Kodi uses. |
 | Kernel | Amlogic vendor 5.15 (`linux-amlogic`) with `common_drivers` | Unchanged base, plus forward-ported kernel patches from the p3i fork. |
 | Audio | ALSA, HDMI passthrough from Kodi | ALSA only for HDMI output. Compressed formats are sent bit-perfect as IEC 61937; no software mixer in the passthrough path. |
